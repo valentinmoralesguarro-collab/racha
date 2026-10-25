@@ -412,6 +412,54 @@ function sheepMood(){
   return 'happy';
 }
 const SHEEP_EXTRA = ['¡Beee! 🐑','Un pasito a la vez, sin apuro 🌱','Tomá un vaso de agua 💧','Lo importante es volver, no ser perfecto 🧡','Respirá hondo... y seguí 😌','Ponelo en manos de Dios y seguí 🙏','Hoy también hay un Evangelio esperándote 📖','Todo lo que hagas, hacelo con cariño ✨'];
+// Mensajes de fe: citas bíblicas cortas (adaptadas; confirmá el texto con tu Biblia) y frases propias
+const FE = {
+  manana:[
+    'Este es el día que hizo el Señor: alegrémonos y gocémonos en él. (Salmo 118,24) 🌞',
+    'Su misericordia no tiene fin: cada mañana se renueva. (Lamentaciones 3,22-23) 🌅',
+    'Hazme oír por la mañana tu misericordia, porque confío en ti. (Salmo 143,8) 🙏',
+    'Encomienda tu camino al Señor, confía en él y él actuará. (Salmo 37,5) 🛤️',
+    'Que lo de hoy sea para mayor gloria de Dios ✨',
+    'Empezá el día con Dios y lo demás va encontrando su lugar 🌱'],
+  tarde:[
+    'Vengan a mí los que están cansados y agobiados, y yo los aliviaré. (Mateo 11,28) 🤍',
+    'Todo lo que hagan, háganlo de corazón, como para el Señor. (Colosenses 3,23) ❤️',
+    'Todo lo que hagan, háganlo para gloria de Dios. (1 Corintios 10,31) ✨',
+    'No nos cansemos de hacer el bien: a su tiempo cosecharemos. (Gálatas 6,9) 🌱',
+    'Si el Señor no construye la casa, en vano se cansan los constructores. (Salmo 127,1) 🏠',
+    'Descarguen en él todas sus preocupaciones, porque él se ocupa de ustedes. (1 Pedro 5,7) 🙏'],
+  noche:[
+    'En paz me acuesto y me duermo, porque tú, Señor, me haces vivir tranquilo. (Salmo 4,9) 🌙',
+    'Quédate con nosotros, Señor, que ya atardece. (Lucas 24,29) 🌅',
+    '¿No ardía nuestro corazón mientras nos hablaba en el camino? (Lucas 24,32) 🔥',
+    'No se inquieten por el mañana: el mañana traerá su propia preocupación. (Mateo 6,34) 🌙',
+    'Les dejo la paz, mi paz les doy. (Juan 14,27) 🕊️',
+    'El Señor te guarda cuando sales y cuando entras. (Salmo 121,8) 🛡️',
+    'Antes de dormir, agradecele a Dios algo del día 🙏'],
+  any:[
+    'El Señor es mi pastor, nada me falta. (Salmo 23,1) 🐑',
+    'Aunque pase por un valle oscuro, no temo, porque tú estás conmigo. (Salmo 23,4) 🐑',
+    'Yo soy el buen pastor: conozco a mis ovejas y ellas me conocen. (Juan 10,14) 🐑',
+    'Mis ovejas escuchan mi voz, yo las conozco y ellas me siguen. (Juan 10,27) 🐑',
+    'Todo lo puedo en Cristo que me fortalece. (Filipenses 4,13) 💪',
+    'Los que esperan en el Señor renuevan sus fuerzas. (Isaías 40,31) 🦅',
+    'No temas, que yo estoy contigo. (Isaías 41,10) 🛡️',
+    'Sé fuerte y valiente, no tengas miedo: el Señor tu Dios está contigo. (Josué 1,9) 💪',
+    'Espera en el Señor, sé valiente y ten ánimo. (Salmo 27,14) 🙏',
+    'El que comenzó en ustedes la buena obra la irá llevando a término. (Filipenses 1,6) 🌱',
+    'Confía en el Señor de todo corazón y no te apoyes en tu propia inteligencia. (Proverbios 3,5) 🙏',
+    'Pidan y se les dará; busquen y encontrarán; llamen y se les abrirá. (Mateo 7,7) 🚪',
+    'Yo sé los planes que tengo para ustedes: planes de paz y no de desgracia. (Jeremías 29,11) 🌈',
+    'Dios es amor. (1 Juan 4,8) ❤️',
+    'Ámense unos a otros como yo los he amado. (Juan 15,12) ❤️',
+    'Ustedes son la luz del mundo. (Mateo 5,14) 💡',
+    'Donde dos o tres se reúnen en mi nombre, allí estoy yo en medio de ellos. (Mateo 18,20) 👥',
+    'Hay más alegría en dar que en recibir. (Hechos 20,35) 🤲',
+    'El que quiera ser grande, que se haga servidor de los demás. (Mateo 20,26) 🤲',
+    'Hoy no estás solo: Dios camina con vos 🙏',
+    'Un hábito chiquito también se puede ofrecer a Dios 🤍']
+};
+const faithPool = () => (FE[dayPart()]||FE.noche).concat(FE.any);
 function sheepPool(){
   const t=dkey(), {dn,tot}=todayStats(), part=dayPart(), st=S.streak;
   if(!S.habits.length) return ['Creá tus hábitos en Ajustes ⚙️ y arrancamos.'];
@@ -433,12 +481,15 @@ function sheepPool(){
 }
 function sheepSays(){
   if(petMsg) return petMsg;
-  const pool = sheepPool(), {dn,tot} = todayStats();
-  return pool[hashStr(dkey()+dayPart()+dn+'|'+tot)%pool.length];
+  const pool = sheepPool(), {dn,tot} = todayStats(), seed = hashStr(dkey()+dayPart()+dn+'|'+tot);
+  // Cerca de la mitad de los días el mensaje es de fe (no para el que recién empieza ni de madrugada)
+  if(S.habits.length && S.activeDays.length>0 && dayPart()!=='madrugada' && seed%2===0){ const f = faithPool(); return f[Math.floor(seed/2)%f.length]; }
+  return pool[seed%pool.length];
 }
 function petSheep(){
-  const all = sheepPool().concat(SHEEP_EXTRA), cur = sheepSays();
-  let m; do { m = all[Math.random()*all.length|0]; } while(m===cur && all.length>1);
+  const cur = sheepSays();
+  const others = sheepPool().concat(SHEEP_EXTRA), faith = faithPool();
+  let m; do { const src = Math.random()<0.5 ? faith : others; m = src[Math.random()*src.length|0]; } while(m===cur);
   petMsg = m; buzz();
 }
 

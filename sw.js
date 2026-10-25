@@ -1,5 +1,5 @@
 // Cambiá el número de versión cuando actualices la app, así los celulares bajan la nueva.
-const CACHE = 'racha-v9';
+const CACHE = 'racha-v10';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
