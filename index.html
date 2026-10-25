@@ -216,7 +216,7 @@ const BADGES = [
 ];
 const MEALS = [['des','🍳','Desayuno'],['alm','🍝','Almuerzo'],['mer','🥪','Merienda'],['cen','🍲','Cena'],['prot','🥩','Proteína'],['agua','💧','2 L de agua']];
 const KEY = 'racha_v1';
-const APP_VERSION = 11, APP_BUILD = '24 oct 2026';   // subir junto con CACHE en sw.js
+const APP_VERSION = 12, APP_BUILD = '24 oct 2026';   // subir junto con CACHE en sw.js
 
 /* ===== Utilidades ===== */
 const $ = s => document.querySelector(s);
@@ -257,7 +257,7 @@ function migrate(){
   S.habits.forEach(h=>{ if(!h.since) h.since = first; if(!h.sched||!h.sched.length) h.sched = [{from:h.since,days:ALLD.slice()}]; });
 }
 migrate();
-function save(){ try{localStorage.setItem(KEY, JSON.stringify(S));}catch(e){} }
+function save(){ try{localStorage.setItem(KEY, JSON.stringify(S));}catch(e){} try{ scheduleSync(); }catch(e){} }
 try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){}
 
 const habitTotal = () => Object.values(S.done).reduce((a,l)=>a+l.length,0);
@@ -914,7 +914,7 @@ function ajustes(){
   const SECS = {
     transf:['💰','Transferencias', pl(S.accounts.length,'cuenta')+' · '+pl(S.cats.gas.length+S.cats.ing.length,'categoría')],
     habitos:['🌱','Hábitos', pl(n,'hábito')+' · días y orden'],
-    general:['🛠️','General','Instalar en el celu · copia de seguridad']
+    general:['🛠️','General','Sincronización · instalar · copia de seguridad']
   };
   if(!SECS[ajs]) return `<h1>⚙️ Ajustes</h1>`+Object.entries(SECS).map(([k,[ic,t,sub]])=>
     `<button class="srow" data-a="ajs" data-v="${k}"><span class="ic">${ic}</span><span class="tx"><b>${t}</b><small>${sub}</small></span><span class="ch">›</span></button>`).join('')+versionCard();
@@ -934,9 +934,10 @@ function ajustes(){
     <h2>Categorías de ingresos</h2><div class="card">${catRows('ing')}</div>`;
   }
   return sub+`<h1>🛠️ General</h1>
+  ${syncCard()}
   <h2>Instalar en el celu</h2><div class="card"><p class="mut" style="margin-top:0">Abrila desde la dirección web donde esté publicada y agregala a tu pantalla de inicio:<br>🍎 <b>iPhone:</b> Safari → Compartir → "Agregar a inicio".<br>🤖 <b>Android:</b> Chrome → menú ⋮ → "Instalar app".</p>
    ${deferredPrompt?'<button class="btn blue" data-a="install">Instalar ahora</button>':''}</div>
-  <h2>Tus datos</h2><div class="card"><p class="mut" style="margin-top:0">Se guardan solo en este dispositivo. Hacé una copia de seguridad de vez en cuando.</p>
+  <h2>Tus datos</h2><div class="card"><p class="mut" style="margin-top:0">Se guardan en este dispositivo (y en tu nube si activás la sincronización). Igual conviene hacer una copia de seguridad de vez en cuando.</p>
    <div class="two"><button class="btn dim" data-a="export">Copiar copia</button><button class="btn dim" data-a="import">Restaurar</button></div></div>
   <p style="text-align:center"><button class="ghost" data-a="reset">Borrar todo y empezar de cero</button></p>`;
 }
@@ -945,6 +946,135 @@ function render(){
   if((view==='gym'||view==='comida') && !unlocked(view)) view='home';
   const f = {home,intenciones,habitos,tareas,plata,gym,comida,logros,oveja,ajustes}[view] || home;
   $('#hud').innerHTML = hud(); $('#nav').innerHTML = nav(); $('#app').innerHTML = f();
+}
+
+/* ===== Sincronización en la nube (Firebase: login con Google + Firestore) ===== */
+// La clave de abajo es pública por diseño: la seguridad la dan las reglas de Firestore (cada cuenta solo ve su documento).
+const FB_CONFIG = {apiKey:'AIzaSyAvTgUY9ij-QKFmfiDK2u8YQ3edAAeS900',authDomain:'racha-app-86276.firebaseapp.com',projectId:'racha-app-86276',messagingSenderId:'174257251666',appId:'1:174257251666:web:26cae95dec82a0cd13468b'};
+const SYNC_META = 'racha_sync_meta', SYNC_ON = 'racha_sync_on';
+const sy = {user:null, status:'', last:0, busy:false, again:false, timer:0, conflict:null};
+function hash53(str){ let h1=0xdeadbeef, h2=0x41c6ce57; for(let i=0,c;i<str.length;i++){ c=str.charCodeAt(i); h1=Math.imul(h1^c,2654435761); h2=Math.imul(h2^c,1597334677); }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909); h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return (4294967296*(2097151&h2)+(h1>>>0)).toString(36); }
+const getMeta = () => { try{ return JSON.parse(localStorage.getItem(SYNC_META)||'null'); }catch(e){ return null; } };
+const setMeta = m => { try{ if(m) localStorage.setItem(SYNC_META,JSON.stringify(m)); else localStorage.removeItem(SYNC_META); }catch(e){} };
+const isPristine = () => !S.activeDays.length && !S.money.length && !S.tasks.length && !S.gym.length && !S.intentions.length && !Object.keys(S.done).length;
+const renderIfSettings = () => { if(view==='ajustes' && ajs==='general') render(); };
+function ago(t){ const m = Math.round((Date.now()-t)/60000); return m<1 ? 'hace un momento' : m<60 ? 'hace '+m+' min' : 'a las '+new Date(t).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}); }
+function errText(e){
+  const c = (e && e.code) || '';
+  if(c==='auth/popup-closed-by-user' || c==='auth/cancelled-popup-request') return 'Cerraste la ventana de Google antes de terminar.';
+  if(c==='auth/unauthorized-domain') return 'Este sitio no está autorizado en Firebase.';
+  if(c==='auth/network-request-failed' || c==='unavailable') return 'No hay conexión con Google. Probá de nuevo.';
+  if(c==='permission-denied') return 'La nube rechazó el acceso (reglas de seguridad).';
+  return 'No se pudo: '+(c || (e && e.message) || 'error desconocido');
+}
+// Acceso a la nube (separado para poder probar la lógica sin internet)
+const cloud = {
+  async get(uid){ const d = await firebase.firestore().collection('users').doc(uid).get(); return d.exists ? d.data() : null; },
+  async put(uid, expectedRev, payload){
+    const db = firebase.firestore(), ref = db.collection('users').doc(uid);
+    return db.runTransaction(async tx => { const d = await tx.get(ref), cur = d.exists ? d.data().rev : 0;
+      if(cur!==expectedRev) throw new Error('rev'); tx.set(ref,Object.assign({},payload,{rev:cur+1})); return cur+1; });
+  }
+};
+let fbp = null;
+function loadFirebase(){
+  if(fbp) return fbp;
+  fbp = ['app','auth','firestore'].reduce((p,n)=>p.then(()=>new Promise((res,rej)=>{
+      const sc = document.createElement('script'); sc.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-'+n+'-compat.js';
+      sc.onload = res; sc.onerror = ()=>rej({code:'unavailable'}); document.head.appendChild(sc); })), Promise.resolve())
+    .then(()=>{ firebase.initializeApp(FB_CONFIG); firebase.auth().onAuthStateChanged(onAuth); })
+    .catch(e=>{ fbp = null; throw e; });
+  return fbp;
+}
+function onAuth(user){
+  sy.user = user || null;
+  if(user){ try{ localStorage.setItem(SYNC_ON,'1'); }catch(e){} sy.status = ''; syncNow(); }
+  renderIfSettings();
+}
+async function syncSignIn(){
+  try{
+    sy.status = 'Conectando…'; renderIfSettings();
+    await loadFirebase();
+    const prov = new firebase.auth.GoogleAuthProvider();
+    try{ await firebase.auth().signInWithPopup(prov); }
+    catch(e){ if(e.code==='auth/popup-blocked' || e.code==='auth/operation-not-supported-in-this-environment'){ await firebase.auth().signInWithRedirect(prov); return; } throw e; }
+  }catch(e){ sy.status = errText(e); renderIfSettings(); }
+}
+async function syncSignOut(){
+  try{ if(window.firebase && firebase.apps.length) await firebase.auth().signOut(); }catch(e){}
+  setMeta(null); try{ localStorage.removeItem(SYNC_ON); }catch(e){}
+  sy.user = null; sy.status = ''; sy.conflict = null; clearTimeout(sy.timer); render();
+}
+function scheduleSync(){ if(!sy.user) return; clearTimeout(sy.timer); sy.timer = setTimeout(()=>syncNow(), 3000); }
+async function pushState(uid, expectedRev){
+  const data = JSON.stringify(S), hash = hash53(data);
+  if(data.length > 900000) throw {message:'Tus datos son demasiado grandes para la nube'};
+  const rev = await cloud.put(uid, expectedRev, {data, hash, updatedAt:Date.now(), v:APP_VERSION});
+  setMeta({uid, baseRev:rev, baseHash:hash});
+}
+function applyRemote(remote, uid){
+  S = Object.assign(fresh(), JSON.parse(remote.data)); migrate();
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){}
+  setMeta({uid, baseRev:remote.rev, baseHash:hash53(JSON.stringify(S))});
+  render();
+}
+function askConflict(remote, uid){
+  sy.conflict = {remote, uid};
+  const cuando = new Date(remote.updatedAt||Date.now()).toLocaleString('es-AR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  $('#mbox').innerHTML = `<div class="big">☁️</div><h3>Datos distintos</h3><p>Este dispositivo y la nube tienen datos diferentes (la nube se actualizó el ${cuando}). Los que no elijas se pierden.</p><div class="stack"><button class="btn gold" data-a="syncpick" data-v="cloud">Usar los de la nube</button><button class="btn dim" data-a="syncpick" data-v="local">Usar los de este dispositivo</button></div>`;
+  $('#modal').classList.add('on');
+}
+async function resolveConflict(choice){
+  const c = sy.conflict; if(!c) return; sy.conflict = null; sy.busy = true; sy.status = 'Sincronizando…'; renderIfSettings();
+  try{
+    if(choice==='cloud') applyRemote(c.remote, c.uid); else await pushState(c.uid, c.remote.rev);
+    sy.last = Date.now(); sy.status = 'ok';
+  }catch(e){ sy.status = e.message==='rev' ? 'Cambió algo en la nube mientras elegías. Tocá "Sincronizar ahora".' : errText(e); }
+  sy.busy = false; renderIfSettings();
+}
+// Regla: si cambió solo uno de los dos lados desde la última sincronización, gana ese; si cambiaron los dos, preguntamos.
+async function syncNow(){
+  if(!sy.user || sy.conflict) return;
+  if(sy.busy){ sy.again = true; return; }
+  if(!navigator.onLine){ sy.status = 'Sin internet: se sincroniza cuando vuelvas a conectarte.'; renderIfSettings(); return; }
+  sy.busy = true; sy.status = 'Sincronizando…'; renderIfSettings();
+  try{
+    const uid = sy.user.uid; let meta = getMeta(); if(meta && meta.uid!==uid) meta = null;
+    const remote = await cloud.get(uid), localHash = hash53(JSON.stringify(S));
+    if(!remote) await pushState(uid, 0);
+    else if(!meta){
+      if(remote.hash===localHash) setMeta({uid, baseRev:remote.rev, baseHash:localHash});
+      else if(isPristine()) applyRemote(remote, uid);
+      else { askConflict(remote, uid); sy.busy = false; sy.status = ''; renderIfSettings(); return; }
+    } else {
+      const dirty = localHash!==meta.baseHash, remoteChanged = remote.rev!==meta.baseRev;
+      if(dirty && !remoteChanged) await pushState(uid, remote.rev);
+      else if(!dirty && remoteChanged) applyRemote(remote, uid);
+      else if(dirty && remoteChanged){
+        if(remote.hash===localHash) setMeta({uid, baseRev:remote.rev, baseHash:localHash});
+        else { askConflict(remote, uid); sy.busy = false; sy.status = ''; renderIfSettings(); return; }
+      }
+    }
+    sy.last = Date.now(); sy.status = 'ok';
+  }catch(e){ if(e && e.message==='rev') sy.again = true; else sy.status = errText(e); }
+  sy.busy = false; renderIfSettings();
+  if(sy.again){ sy.again = false; setTimeout(()=>syncNow(), 500); }
+}
+function syncInit(){
+  let on = false; try{ on = localStorage.getItem(SYNC_ON)==='1'; }catch(e){}
+  if(on && navigator.onLine) loadFirebase().catch(e=>{ sy.status = errText(e); });
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && sy.user) syncNow(); });
+  addEventListener('online', ()=>{ if(sy.user) syncNow(); });
+}
+function syncCard(){
+  const u = sy.user, busy = sy.status==='Conectando…' || sy.status==='Sincronizando…';
+  if(!u) return `<h2>Sincronización</h2><div class="card"><p class="mut" style="margin-top:0">Conectá tu cuenta de Google para tener tus datos iguales en el celular y en la compu. Se guardan en tu cuenta, en servidores de Google.</p>${sy.status?`<p class="${busy?'mut':'neg'}" style="font-weight:700">${esc(sy.status)}</p>`:''}<button class="btn blue" data-a="syncin" ${busy?'disabled':''}>Iniciar sesión con Google</button></div>`;
+  const line = sy.status==='ok' ? `<span class="pos">✅ Sincronizado ${ago(sy.last)}</span>` : busy ? `<span class="mut">${esc(sy.status)}</span>` : sy.status ? `<span class="neg">${esc(sy.status)}</span>` : '<span class="mut">Listo para sincronizar</span>';
+  return `<h2>Sincronización</h2><div class="card"><div>☁️ <b>Conectado</b></div><div class="mut">${esc(u.email||'')}</div><div style="margin:8px 0;font-weight:700">${line}</div>
+   <div class="two"><button class="btn dim" data-a="syncnow" ${busy?'disabled':''}>Sincronizar ahora</button><button class="btn dim" data-a="syncout">Cerrar sesión</button></div>
+   <p class="mut" style="margin:10px 0 0">Se sincroniza solo al abrir la app y unos segundos después de cada cambio. Funciona sin internet: se pone al día cuando vuelve la conexión.</p></div>`;
 }
 
 /* ===== Eventos ===== */
@@ -977,6 +1107,10 @@ document.addEventListener('click', e=>{
     if(!confirm('¿Borrar esta categoría? Los movimientos que ya anotaste la conservan.')) return; S.cats[k]=S.cats[k].filter(c=>c.id!==id); save();
   }
   else if(a==='pet'){ petSheep(); }
+  else if(a==='syncin'){ syncSignIn(); return; }
+  else if(a==='syncnow'){ syncNow(); return; }
+  else if(a==='syncout'){ if(!confirm('¿Cerrar sesión? Tus datos se quedan en este dispositivo y dejan de sincronizarse.')) return; syncSignOut(); return; }
+  else if(a==='syncpick'){ $('#modal').classList.remove('on'); resolveConflict(b.dataset.v); return; }
   else if(a==='upd'){ checkUpdate(); return; }
   else if(a==='updgo'){ applyUpdate(); return; }
   else if(a==='tadd'){
@@ -1073,7 +1207,7 @@ document.addEventListener('click', e=>{
     const txt = prompt('Pegá acá tu copia de seguridad (reemplaza lo actual):'); if(!txt) return;
     try{ const o=JSON.parse(txt); if(typeof o!=='object'||!o||typeof o.xp!=='number') throw 0; S=Object.assign(fresh(),o); migrate(); save(); toast('✅ Datos restaurados'); }catch(err){ toast('Ese texto no es una copia válida'); return; }
   }
-  else if(a==='reset'){ if(confirm('Se borra todo tu progreso. ¿Seguro?')){ S=fresh(); save(); } }
+  else if(a==='reset'){ if(confirm(sy.user ? 'Se borra todo tu progreso, también en la nube y en tus otros dispositivos. ¿Seguro?' : 'Se borra todo tu progreso. ¿Seguro?')){ S=fresh(); save(); } }
   render();
   if(a==='pet'){ const sv=document.querySelector('.sheep'); if(sv){ sv.classList.add('boing'); sv.addEventListener('animationend',()=>sv.classList.remove('boing'),{once:true}); } }
   if(b.dataset.focus){ const els=document.querySelectorAll(b.dataset.focus), l=els[els.length-1]; if(l){ l.focus(); l.select(); } }
@@ -1108,7 +1242,7 @@ document.addEventListener('keydown', e=>{
   if(a) document.querySelector('[data-a="'+a+'"]').click();
 });
 
-reconcile(); checkBadges(); save(); render();
+reconcile(); checkBadges(); save(); render(); syncInit();
 if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 </script>
 </body>
