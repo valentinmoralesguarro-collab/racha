@@ -216,7 +216,7 @@ const BADGES = [
 ];
 const MEALS = [['des','🍳','Desayuno'],['alm','🍝','Almuerzo'],['mer','🥪','Merienda'],['cen','🍲','Cena'],['prot','🥩','Proteína'],['agua','💧','2 L de agua']];
 const KEY = 'racha_v1';
-const APP_VERSION = 13, APP_BUILD = '24 oct 2026';   // subir junto con CACHE en sw.js
+const APP_VERSION = 14, APP_BUILD = '24 oct 2026';   // subir junto con CACHE en sw.js
 
 /* ===== Utilidades ===== */
 const $ = s => document.querySelector(s);
@@ -644,9 +644,8 @@ function home(){
   };
   return `<div class="sheepbox"><button class="petbtn l" data-a="pet" aria-label="Tocar a la oveja">${sheep(92)}</button><div class="bubble">${sheepSays()}</div></div>
   <div class="card dios"><b>✝️ Palabra de hoy</b><div class="mut" style="margin:4px 0 0">Empezá el día con el Señor.</div>
-   <div class="stack"><a class="btn gold" href="https://sercreyente.com/evangelio/" target="_blank" rel="noopener">📖 Evangelio del día</a>
-   <div class="two"><a class="btn dim" href="https://sercreyente.com/category/para-reflexionar/" target="_blank" rel="noopener">💭 Reflexiones</a>
-   <button class="btn dim" data-a="go" data-v="intenciones">🙏 Intenciones${nInt?' ('+nInt+')':''}</button></div></div></div>
+   <div class="stack"><a class="btn gold" href="https://sercreyente.com/" target="_blank" rel="noopener">📖 Evangelio del día</a>
+   <button class="btn dim" data-a="go" data-v="intenciones">🙏 Intenciones${nInt?' ('+nInt+')':''}</button></div></div>
   ${quickFin()}
   <h2>Misiones de hoy · ${nDone}/${total}</h2>
   <div class="card">${quests || (S.habits.length ? '<p class="mut">Hoy no te toca ningún hábito 😴</p>' : '<p class="mut">Todavía no tenés hábitos.</p><button class="btn blue" data-a="goaj" data-s="habitos" style="margin-bottom:10px">Crear hábitos en Ajustes</button>')}${offLine}
