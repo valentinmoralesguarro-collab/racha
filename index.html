@@ -216,6 +216,7 @@ const BADGES = [
 ];
 const MEALS = [['des','🍳','Desayuno'],['alm','🍝','Almuerzo'],['mer','🥪','Merienda'],['cen','🍲','Cena'],['prot','🥩','Proteína'],['agua','💧','2 L de agua']];
 const KEY = 'racha_v1';
+const APP_VERSION = 11, APP_BUILD = '24 oct 2026';   // subir junto con CACHE en sw.js
 
 /* ===== Utilidades ===== */
 const $ = s => document.querySelector(s);
@@ -519,7 +520,7 @@ function fixQ(){
   const l = S.cats[qt]; if(!l.some(c=>c.name===qc)) qc = l.length ? l[0].name : '';
 }
 const TABOF = {home:'home',gym:'home',comida:'home',intenciones:'home',habitos:'home',tareas:'home',plata:'home',oveja:'oveja',logros:'oveja',ajustes:'ajustes'};
-function go(v){ view=v; petMsg=null; editT=''; if(v==='ajustes') ajs=''; if(v==='plata') fixQ(); render(); window.scrollTo(0,0); }
+function go(v){ view=v; petMsg=null; editT=''; if(v==='ajustes'){ ajs=''; upd=''; } if(v==='plata') fixQ(); render(); window.scrollTo(0,0); }
 
 /* ===== Vistas ===== */
 function hud(){
@@ -880,6 +881,34 @@ function catRows(k){
   return S.cats[k].map(c=>`<div class="er"><input class="e" data-f="ce" data-k="${k}" data-id="${c.id}" value="${esc(c.e)}" maxlength="4" aria-label="Emoji"><input class="n" data-f="cn" data-k="${k}" data-id="${c.id}" value="${esc(c.name)}" maxlength="24" aria-label="Nombre"><button class="ib del" data-a="delcat" data-k="${k}" data-id="${c.id}" aria-label="Borrar">✕</button></div>`).join('')
    + `<button class="btn dim" data-a="addcat" data-k="${k}" data-focus='[data-f="cn"][data-k="${k}"]'>+ Nueva categoría</button>`;
 }
+/* ===== Versión y actualizaciones ===== */
+let upd = '';   // '' | 'busy' | 'ok' | 'new:N' | 'offline'
+async function checkUpdate(){
+  upd = 'busy'; render();
+  try{
+    const r = await fetch('sw.js?x='+Date.now(),{cache:'no-store'}); if(!r.ok) throw 0;
+    const m = (await r.text()).match(/racha-v(\d+)/), latest = m ? Number(m[1]) : 0;
+    upd = latest>APP_VERSION ? 'new:'+latest : 'ok';
+  }catch(e){ upd = 'offline'; }
+  render();
+}
+async function applyUpdate(){
+  try{
+    if('serviceWorker' in navigator) (await navigator.serviceWorker.getRegistrations()).forEach(r=>r.unregister());
+    if(window.caches) for(const k of await caches.keys()) await caches.delete(k);
+  }catch(e){}
+  location.reload();   // tus datos no se borran: están en localStorage
+}
+function versionCard(){
+  const msg = upd==='busy' ? '<span class="mut">Buscando…</span>'
+    : upd==='ok' ? '<b class="pos">✅ Tenés la última versión</b>'
+    : upd==='offline' ? '<b class="neg">No pude conectarme. Revisá tu internet.</b>'
+    : upd.startsWith('new:') ? '<b style="color:var(--gold)">🆕 Hay una versión nueva (v'+upd.slice(4)+')</b>' : '';
+  const btn = upd.startsWith('new:') ? '<button class="btn gold" data-a="updgo" style="margin-top:10px">Actualizar ahora</button>'
+    : `<button class="btn dim" data-a="upd" style="margin-top:10px" ${upd==='busy'?'disabled':''}>Buscar actualización</button>`;
+  return `<div class="card" style="margin-top:18px;text-align:center"><div class="mut">Racha · versión</div><div style="font-size:30px;font-weight:900">v${APP_VERSION}</div><div class="mut">${APP_BUILD}</div>${msg?'<div style="margin-top:8px">'+msg+'</div>':''}${btn}</div>`;
+}
+
 function ajustes(){
   const n = S.habits.length, used = id => S.money.some(m=>m.acc===id||m.to===id), pl = (k,w) => k+' '+w+(k===1?'':'s');
   const SECS = {
@@ -888,7 +917,7 @@ function ajustes(){
     general:['🛠️','General','Instalar en el celu · copia de seguridad']
   };
   if(!SECS[ajs]) return `<h1>⚙️ Ajustes</h1>`+Object.entries(SECS).map(([k,[ic,t,sub]])=>
-    `<button class="srow" data-a="ajs" data-v="${k}"><span class="ic">${ic}</span><span class="tx"><b>${t}</b><small>${sub}</small></span><span class="ch">›</span></button>`).join('');
+    `<button class="srow" data-a="ajs" data-v="${k}"><span class="ic">${ic}</span><span class="tx"><b>${t}</b><small>${sub}</small></span><span class="ch">›</span></button>`).join('')+versionCard();
   const sub = '<button class="ghost" data-a="ajs" data-v="">← Ajustes</button>';
   if(ajs==='habitos'){
     const hab = S.habits.map((h,i)=>`<div class="blk"><div class="er"><input class="e" data-f="he" data-id="${h.id}" value="${esc(h.e)}" maxlength="4" aria-label="Emoji"><input class="n" data-f="hn" data-id="${h.id}" value="${esc(h.name)}" maxlength="40" aria-label="Nombre"><button class="ib" data-a="mvh" data-id="${h.id}" data-d="-1" ${i===0?'disabled':''} aria-label="Subir">↑</button><button class="ib" data-a="mvh" data-id="${h.id}" data-d="1" ${i===n-1?'disabled':''} aria-label="Bajar">↓</button><button class="ib del" data-a="delh" data-id="${h.id}" aria-label="Borrar">✕</button></div>${dayChips(h)}</div>`).join('');
@@ -948,6 +977,8 @@ document.addEventListener('click', e=>{
     if(!confirm('¿Borrar esta categoría? Los movimientos que ya anotaste la conservan.')) return; S.cats[k]=S.cats[k].filter(c=>c.id!==id); save();
   }
   else if(a==='pet'){ petSheep(); }
+  else if(a==='upd'){ checkUpdate(); return; }
+  else if(a==='updgo'){ applyUpdate(); return; }
   else if(a==='tadd'){
     const tx = $('#t-text').value.trim(); if(!tx){ toast('Escribí la tarea'); return; }
     let d = $('#t-date').value; const tm = $('#t-time').value; if(tm && !d) d = t;
