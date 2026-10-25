@@ -216,7 +216,7 @@ const BADGES = [
 ];
 const MEALS = [['des','🍳','Desayuno'],['alm','🍝','Almuerzo'],['mer','🥪','Merienda'],['cen','🍲','Cena'],['prot','🥩','Proteína'],['agua','💧','2 L de agua']];
 const KEY = 'racha_v1';
-const APP_VERSION = 12, APP_BUILD = '24 oct 2026';   // subir junto con CACHE en sw.js
+const APP_VERSION = 13, APP_BUILD = '24 oct 2026';   // subir junto con CACHE en sw.js
 
 /* ===== Utilidades ===== */
 const $ = s => document.querySelector(s);
@@ -958,7 +958,10 @@ function hash53(str){ let h1=0xdeadbeef, h2=0x41c6ce57; for(let i=0,c;i<str.leng
   return (4294967296*(2097151&h2)+(h1>>>0)).toString(36); }
 const getMeta = () => { try{ return JSON.parse(localStorage.getItem(SYNC_META)||'null'); }catch(e){ return null; } };
 const setMeta = m => { try{ if(m) localStorage.setItem(SYNC_META,JSON.stringify(m)); else localStorage.removeItem(SYNC_META); }catch(e){} };
-const isPristine = () => !S.activeDays.length && !S.money.length && !S.tasks.length && !S.gym.length && !S.intentions.length && !Object.keys(S.done).length;
+const pristineOf = st => !st.activeDays.length && !st.money.length && !st.tasks.length && !st.gym.length && !st.intentions.length && !Object.keys(st.done).length;
+const isPristine = () => pristineOf(S);
+// ¿La nube tiene solo datos vacíos (alguien se conectó sin haber cargado nada)?
+function remoteIsPristine(remote){ try{ return pristineOf(Object.assign(fresh(), JSON.parse(remote.data))); }catch(e){ return false; } }
 const renderIfSettings = () => { if(view==='ajustes' && ajs==='general') render(); };
 function ago(t){ const m = Math.round((Date.now()-t)/60000); return m<1 ? 'hace un momento' : m<60 ? 'hace '+m+' min' : 'a las '+new Date(t).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}); }
 function errText(e){
@@ -1043,10 +1046,14 @@ async function syncNow(){
   try{
     const uid = sy.user.uid; let meta = getMeta(); if(meta && meta.uid!==uid) meta = null;
     const remote = await cloud.get(uid), localHash = hash53(JSON.stringify(S));
-    if(!remote) await pushState(uid, 0);
+    if(!remote){
+      // Dispositivo sin datos y nube vacía: no subimos un "vacío"; se anota como base y listo.
+      if(isPristine()) setMeta({uid, baseRev:0, baseHash:localHash}); else await pushState(uid, 0);
+    }
     else if(!meta){
       if(remote.hash===localHash) setMeta({uid, baseRev:remote.rev, baseHash:localHash});
       else if(isPristine()) applyRemote(remote, uid);
+      else if(remoteIsPristine(remote)) await pushState(uid, remote.rev);   // la nube estaba vacía: subimos lo de este dispositivo sin preguntar
       else { askConflict(remote, uid); sy.busy = false; sy.status = ''; renderIfSettings(); return; }
     } else {
       const dirty = localHash!==meta.baseHash, remoteChanged = remote.rev!==meta.baseRev;
